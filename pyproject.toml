@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "local-hybrid-rag"
+version = "0.1.0"
+description = "Local BM25 + HNSW + RRF RAG using Ollama"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "usearch>=2.20,<3",
+  "numpy>=1.26,<3",
+  "pypdf>=5,<7",
+]
+
+[project.scripts]
+hybrid-rag = "hybrid_rag.cli:main"
+hybrid-rag-ui = "hybrid_rag.webui:main"
+
+[project.optional-dependencies]
+marker = ["marker-pdf>=2,<3"]
+ui = ["gradio>=5.49,<6"]
+eval = [
+  "ragas>=0.3,<0.4",
+  "langchain>=0.3,<0.4",
+  "langchain-community>=0.3.31,<0.4",
+  "langchain-core>=0.3.78,<0.4",
+  "langchain-openai>=0.3.35,<0.4",
+  "langchain-ollama>=0.3,<0.4",
+  "langchain-text-splitters>=0.3,<0.4",
+  "rouge-score>=0.1.2,<1",
+]
+phoenix = [
+  "arize-phoenix-client>=3,<4",
+  "arize-phoenix-otel>=0.17,<1",
+  "openinference-instrumentation>=0.1,<1",
+  "opentelemetry-api>=1.25,<2",
+  "opentelemetry-sdk>=1.25,<2",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

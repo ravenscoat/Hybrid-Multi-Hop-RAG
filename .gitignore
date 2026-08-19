@@ -1,0 +1,13 @@
+.venv/
+.phoenix-venv/
+.phoenix*/
+.rag_index/
+src/*.egg-info/
+outputs/*.log
+data/markdown/*
+!data/markdown/.gitkeep
+__pycache__/
+*.pyc
+.pytest_cache/
+data/documents/*
+!data/documents/.gitkeep

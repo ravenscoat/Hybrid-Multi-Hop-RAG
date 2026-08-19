@@ -1,0 +1,2 @@
+"""Local hybrid RAG package."""
+
