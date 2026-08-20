@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import re
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -84,6 +85,8 @@ def download_one(item: tuple[str, str], out_dir: Path, delay: float) -> dict[str
 
 
 def main() -> None:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser()
     parser.add_argument("--listing-url", action="append", required=True)
     parser.add_argument("--out-dir", type=Path, default=Path("data/documents/pakistan_code_pdfs"))
