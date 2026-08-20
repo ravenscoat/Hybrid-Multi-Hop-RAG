@@ -2,6 +2,7 @@
 .phoenix-venv/
 .phoenix*/
 .rag_index/
+.chroma/
 src/*.egg-info/
 outputs/*.log
 data/markdown/*

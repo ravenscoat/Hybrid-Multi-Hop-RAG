@@ -3,64 +3,68 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import numpy as np
-from usearch.index import Index
-
 from .bm25 import BM25
 from .models import Chunk
 
 
 class HybridIndex:
-    def __init__(self, directory: Path, dimension: int):
+    def __init__(self, directory: Path, dimension: int, collection_name: str = "hybrid_rag_chunks"):
         self.directory = directory
         self.dimension = dimension
+        self.collection_name = collection_name
         self.chunks: list[Chunk] = []
         self.bm25: BM25 | None = None
-        self.hnsw: Index | None = None
+        self.collection = None
 
     def build(self, chunks: list[Chunk], embeddings: list[list[float]]) -> None:
         if not chunks:
             raise ValueError("No supported document content was found")
-        matrix = np.asarray(embeddings, dtype=np.float32)
-        if matrix.shape != (len(chunks), self.dimension):
-            raise ValueError(f"Expected embedding shape {(len(chunks), self.dimension)}, got {matrix.shape}")
+        if len(embeddings) != len(chunks) or any(len(vector) != self.dimension for vector in embeddings):
+            raise ValueError(f"Expected {len(chunks)} embeddings of dimension {self.dimension}")
+        import chromadb
+
         self.directory.mkdir(parents=True, exist_ok=True)
-        index = Index(
-            ndim=self.dimension,
-            metric="cos",
-            dtype="f32",
-            connectivity=16,
-            expansion_add=100,
-            expansion_search=64,
+        client = chromadb.PersistentClient(path=str(self.directory))
+        try:
+            client.delete_collection(self.collection_name)
+        except Exception:
+            pass
+        collection = client.get_or_create_collection(
+            name=self.collection_name,
+            metadata={"hnsw:space": "cosine"},
         )
-        index.add(np.arange(len(chunks), dtype=np.uint64), matrix)
-        index.save(self.directory / "dense.usearch")
+        batch_size = 5000
+        for start in range(0, len(chunks), batch_size):
+            batch = chunks[start : start + batch_size]
+            collection.add(
+                ids=[str(chunk.id) for chunk in batch],
+                embeddings=embeddings[start : start + batch_size],
+                documents=[chunk.text for chunk in batch],
+                metadatas=[{"source": chunk.source, "ordinal": chunk.ordinal} for chunk in batch],
+            )
         (self.directory / "chunks.json").write_text(
             json.dumps([chunk.to_dict() for chunk in chunks], ensure_ascii=False), encoding="utf-8"
         )
         self.chunks = chunks
         self.bm25 = BM25([chunk.text for chunk in chunks])
-        self.hnsw = index
+        self.collection = collection
 
     def load(self) -> None:
         values = json.loads((self.directory / "chunks.json").read_text(encoding="utf-8"))
         self.chunks = [Chunk.from_dict(value) for value in values]
         self.bm25 = BM25([chunk.text for chunk in self.chunks])
-        self.hnsw = Index(
-            ndim=self.dimension,
-            metric="cos",
-            dtype="f32",
-            connectivity=16,
-            expansion_search=64,
-        )
-        self.hnsw.load(self.directory / "dense.usearch")
+        import chromadb
+
+        client = chromadb.PersistentClient(path=str(self.directory))
+        self.collection = client.get_collection(self.collection_name)
 
     def keyword(self, query: str, limit: int) -> list[int]:
         assert self.bm25 is not None
         return [doc_id for doc_id, _ in self.bm25.search(query, limit)]
 
     def dense(self, vector: list[float], limit: int) -> list[int]:
-        assert self.hnsw is not None
+        if self.collection is None:
+            raise RuntimeError("Vector collection is not loaded")
         actual_limit = min(limit, len(self.chunks))
-        matches = self.hnsw.search(np.asarray(vector, dtype=np.float32), actual_limit)
-        return [int(value) for value in matches.keys]
+        matches = self.collection.query(query_embeddings=[vector], n_results=actual_limit, include=["metadatas"])
+        return [int(value) for value in matches["ids"][0]]

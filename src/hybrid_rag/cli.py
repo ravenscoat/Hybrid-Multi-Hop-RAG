@@ -23,8 +23,12 @@ def ingest(path: Path, settings: Settings) -> None:
         batch = chunks[start : start + batch_size]
         embeddings.extend(ollama.embed(settings.embedding_model, [chunk.text for chunk in batch]))
         print(f"Embedded {min(start + batch_size, len(chunks))}/{len(chunks)} chunks")
-    HybridIndex(settings.index_dir, settings.embedding_dim).build(chunks, embeddings)
-    print(f"Indexed {len(chunks)} chunks in {settings.index_dir}")
+    HybridIndex(
+        settings.vector_store_dir,
+        settings.embedding_dim,
+        settings.chroma_collection,
+    ).build(chunks, embeddings)
+    print(f"Indexed {len(chunks)} chunks in {settings.vector_store_dir} (Chroma)")
 
 
 def main() -> None:

@@ -4,7 +4,7 @@ A hardware-aware, local retrieval-augmented generation pipeline for an 8 GB
 RTX 5060 laptop. It combines:
 
 - BM25 keyword retrieval
-- Qwen3 dense embeddings with an HNSW index
+- Qwen3 dense embeddings stored in a persistent local Chroma collection (Chroma's HNSW index)
 - Reciprocal Rank Fusion (RRF)
 - optional listwise reranking
 - adaptive, retrieval-conditioned query decomposition for multi-hop questions
@@ -33,7 +33,7 @@ manual fast path on your real question set.
 Normal query:
 
 ```text
-query -> BM25 top 30 + HNSW top 30 -> RRF top 15
+query -> BM25 top 30 + Chroma/HNSW top 30 -> RRF top 15
       -> optional rerank top 10 -> Qwen3 answer
 ```
 
@@ -189,10 +189,10 @@ Configuration is via environment variables; see `.env.example`.
 - Chunk size: 350 words, 60-word overlap
 - Candidate pools: 30 BM25 + 30 dense
 - RRF: `k=60`, fused top 15
-- Default fusion weights: 50% BM25, 50% semantic (tunable with
+- Default fusion weights: 40% BM25, 60% semantic (tunable with
   `BM25_WEIGHT` and `SEMANTIC_WEIGHT`)
 - Rerank: top 10 down to 6
-- HNSW: `M=16`, `ef_construction=100`, query `ef=64`
+- Chroma: persistent local collection under `.chroma/`
 - Generation context: at most 6 chunks
 
 These are starting values, not universal truths. Build a small evaluation set
@@ -201,7 +201,7 @@ and p50/p95 latency before changing models.
 
 ## Compare hybrid weights and reranking
 
-The reproducible six-way ablation keeps BM25 and HNSW candidate pools at 30,
+The reproducible six-way ablation keeps BM25 and Chroma dense candidate pools at 30,
 uses weighted RRF, reranks the fused candidates when requested, and evaluates
 the final four chunks. It compares 50/50, 60/40 BM25/semantic, and 40/60
 BM25/semantic, each with and without the Qwen ranker:

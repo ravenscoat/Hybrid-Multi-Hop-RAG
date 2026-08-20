@@ -25,7 +25,11 @@ class RAGPipeline:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.ollama = OllamaClient(settings.ollama_url)
-        self.index = HybridIndex(settings.index_dir, settings.embedding_dim)
+        self.index = HybridIndex(
+            settings.vector_store_dir,
+            settings.embedding_dim,
+            settings.chroma_collection,
+        )
         self.last_span_id: str | None = None
         self.last_rerank_debug: dict = {"enabled": False}
         self._request_usage = {"prompt": 0, "completion": 0, "calls": 0}
