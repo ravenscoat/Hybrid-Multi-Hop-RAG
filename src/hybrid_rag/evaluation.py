@@ -55,6 +55,7 @@ def evaluate_file(
             "sources": sources,
             "phoenix_span_id": pipeline.last_span_id,
             "latency_ms": latency_ms,
+            "rerank_debug": pipeline.last_rerank_debug,
         })
 
     score_rows: list[dict]
@@ -89,10 +90,19 @@ def evaluate_file(
             }
             for sample in samples
         ]
+        # Local models can take a long time to produce judge JSON. Keep each
+        # metric call bounded and avoid retry storms; callers can increase
+        # these limits with environment variables for a larger evaluation.
+        ragas_timeout = int(os.getenv("RAGAS_TIMEOUT_SECONDS", "60"))
+        ragas_retries = int(os.getenv("RAGAS_MAX_RETRIES", "0"))
         result = evaluate(
             EvaluationDataset.from_list(ragas_rows),
             metrics=metrics,
-            run_config=RunConfig(timeout=180, max_retries=1, max_workers=1),
+            run_config=RunConfig(
+                timeout=ragas_timeout,
+                max_retries=ragas_retries,
+                max_workers=1,
+            ),
         )
         score_rows = result.to_pandas().to_dict(orient="records")
         for score in score_rows:
@@ -171,13 +181,33 @@ def _retrieval_metrics(retrieved: list[str], relevant: list[str] | None) -> dict
     if not relevant:
         return {}
     flags = [any(_source_matches(item, gold) for gold in relevant) for item in retrieved]
+    # Precision/recall are measured over retrieved chunks, but NDCG is
+    # source-based here.  Multiple chunks from the same relevant document
+    # must not receive repeated gain; otherwise NDCG can incorrectly exceed
+    # its maximum value of 1.0.
+    seen_relevant: set[str] = set()
+    unique_flags: list[bool] = []
+    for item, matched in zip(retrieved, flags):
+        if not matched:
+            unique_flags.append(False)
+            continue
+        matched_gold = next(
+            gold for gold in relevant if _source_matches(item, gold)
+        )
+        key = matched_gold.replace("/", "\\").casefold().strip()
+        unique_flags.append(key not in seen_relevant)
+        seen_relevant.add(key)
     matched_gold = sum(any(_source_matches(item, gold) for item in retrieved) for gold in relevant)
     relevant_retrieved = sum(flags)
     precision = relevant_retrieved / len(retrieved) if retrieved else 0.0
     recall = matched_gold / len(relevant)
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
     first_rank = next((rank for rank, matched in enumerate(flags, 1) if matched), None)
-    dcg = sum(1.0 / math.log2(rank + 1) for rank, matched in enumerate(flags, 1) if matched)
+    dcg = sum(
+        1.0 / math.log2(rank + 1)
+        for rank, matched in enumerate(unique_flags, 1)
+        if matched
+    )
     ideal_count = min(len(relevant), len(retrieved))
     idcg = sum(1.0 / math.log2(rank + 1) for rank in range(1, ideal_count + 1))
     return {

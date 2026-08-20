@@ -17,6 +17,6 @@ class Settings:
     fused_k: int = int(os.getenv("FUSED_K", "15"))
     rerank_k: int = int(os.getenv("RERANK_K", "6"))
     rrf_constant: int = int(os.getenv("RRF_CONSTANT", "60"))
-    bm25_weight: float = float(os.getenv("BM25_WEIGHT", "0.5"))
-    semantic_weight: float = float(os.getenv("SEMANTIC_WEIGHT", "0.5"))
+    bm25_weight: float = float(os.getenv("BM25_WEIGHT", "0.4"))
+    semantic_weight: float = float(os.getenv("SEMANTIC_WEIGHT", "0.6"))
     max_context_chunks: int = int(os.getenv("MAX_CONTEXT_CHUNKS", "6"))

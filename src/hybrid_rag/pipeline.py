@@ -27,6 +27,7 @@ class RAGPipeline:
         self.ollama = OllamaClient(settings.ollama_url)
         self.index = HybridIndex(settings.index_dir, settings.embedding_dim)
         self.last_span_id: str | None = None
+        self.last_rerank_debug: dict = {"enabled": False}
         self._request_usage = {"prompt": 0, "completion": 0, "calls": 0}
 
     def _record_llm_response(self, span, response: ChatResponse) -> str:
@@ -206,6 +207,7 @@ Resolve the bridge entity from the passage when possible. Do not answer the ques
 
     def rerank(self, question: str, hits: list[SearchHit]) -> list[SearchHit]:
         candidates = hits[:10]
+        original_ids = [hit.chunk.id for hit in candidates]
         rendered = "\n\n".join(
             f"ID {hit.chunk.id}\nVerification question: {hit.matched_query or question}\n{hit.chunk.text}"
             for hit in candidates
@@ -214,7 +216,9 @@ Resolve the bridge entity from the passage when possible. Do not answer the ques
 
 Rank evidence by whether it helps answer its Verification question. A later-hop
 passage must not be rejected merely because it does not mention the final question.
-Return JSON {{"ids": [integer IDs best-first]}} with at most {self.settings.rerank_k} IDs.
+Return every candidate ID exactly once in best-first order. Do not omit candidates,
+invent IDs, explain the answer, or return an answer. Return only JSON in this form:
+{{"ids": [all candidate integer IDs best-first]}}
 
 {rendered}"""
         with rag_span(
@@ -228,18 +232,64 @@ Return JSON {{"ids": [integer IDs best-first]}} with at most {self.settings.rera
         ) as span:
             response = self.ollama.chat_with_metadata(
                 self.settings.generation_model,
-                "You are a strict listwise evidence reranker.",
+                "You are a strict listwise evidence reranker. Never answer the question. Return only the requested JSON object with an ids array.",
                 prompt,
                 json_mode=True,
+                json_schema={
+                    "type": "object",
+                    "properties": {
+                        "ids": {
+                            "type": "array",
+                            "items": {"type": "integer", "enum": original_ids},
+                            "minItems": len(original_ids),
+                            "maxItems": len(original_ids),
+                            "uniqueItems": True,
+                        }
+                    },
+                    "required": ["ids"],
+                    "additionalProperties": False,
+                },
             )
             raw = self._record_llm_response(span, response)
+        parse_error: str | None = None
         try:
-            ordered_ids = [int(value) for value in json.loads(raw).get("ids", [])]
-        except (json.JSONDecodeError, TypeError, ValueError):
-            return candidates[: self.settings.rerank_k]
+            parsed = json.loads(raw)
+            if not isinstance(parsed, dict) or "ids" not in parsed:
+                raise ValueError("response did not contain an ids field")
+            ordered_ids = [int(value) for value in parsed.get("ids", [])]
+            if not ordered_ids:
+                raise ValueError("ids array was empty")
+            if len(ordered_ids) != len(original_ids) or set(ordered_ids) != set(original_ids):
+                raise ValueError("ids must contain every candidate exactly once")
+        except (json.JSONDecodeError, AttributeError, KeyError, TypeError, ValueError) as exc:
+            parse_error = f"{type(exc).__name__}: {exc}"
+            ordered_ids = []
         by_id = {hit.chunk.id: hit for hit in candidates}
-        ordered = [by_id[doc_id] for doc_id in ordered_ids if doc_id in by_id]
-        return (ordered or candidates)[: self.settings.rerank_k]
+        valid_ids = [doc_id for doc_id in ordered_ids if doc_id in by_id]
+        ordered = [by_id[doc_id] for doc_id in valid_ids]
+        final = (ordered or candidates)[: self.settings.rerank_k]
+        final_ids = [hit.chunk.id for hit in final]
+        self.last_rerank_debug = {
+            "enabled": True,
+            "candidate_ids": original_ids,
+            "raw_response": raw[:4000],
+            "parsed_ids": ordered_ids,
+            "valid_ids": valid_ids,
+            "final_ids": final_ids,
+            "parse_ok": parse_error is None,
+            "parse_error": parse_error,
+            "order_changed": final_ids != original_ids[: len(final_ids)],
+        }
+        span.set("rerank.candidate_ids", original_ids)
+        span.set("rerank.parsed_ids", ordered_ids)
+        span.set("rerank.valid_ids", valid_ids)
+        span.set("rerank.final_ids", final_ids)
+        span.set("rerank.parse_ok", parse_error is None)
+        span.set("rerank.order_changed", self.last_rerank_debug["order_changed"])
+        if parse_error:
+            span.set("rerank.parse_error", parse_error)
+        span.output(self.last_rerank_debug)
+        return final
 
     def answer_with_trace(
         self, question: str, multi_hop: bool | None = None, rerank: bool = False
@@ -253,6 +303,7 @@ Return JSON {{"ids": [integer IDs best-first]}} with at most {self.settings.rera
         ) as root_span:
             self.last_span_id = root_span.span_id
             self.index.load()
+            self.last_rerank_debug = {"enabled": rerank}
             if multi_hop is None:
                 multi_hop = self.decide_route(question)
             hits = self.retrieve_multi_hop(question) if multi_hop else self.retrieve(question)
