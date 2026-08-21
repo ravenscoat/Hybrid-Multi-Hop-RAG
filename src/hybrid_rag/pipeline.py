@@ -12,10 +12,11 @@ from .ollama import ChatResponse, OllamaClient
 from .observability import rag_span
 
 
-SYSTEM_ANSWER = """Answer only from the supplied evidence. Each evidence block starts with an
-exact citation label such as [pakistan_law.md#174]. Copy that exact label when
-citing a claim; never write generic labels like [source#chunk]. If the evidence
-is insufficient, say so plainly. Do not invent citations. Be concise."""
+SYSTEM_ANSWER = """Answer only from the supplied evidence. Each evidence block begins with
+an exact bracketed citation label. When citing a claim, copy the exact label
+from the relevant evidence block. Never invent, reuse, or alter a citation
+label, and never write generic labels. If the evidence is insufficient, say so
+plainly. Be concise."""
 SYSTEM_ROUTER = """You route questions for a retrieval system. Choose MULTI_HOP only when
 answering requires finding an intermediate entity or combining facts from sequential
 retrieval steps. Otherwise choose SINGLE_HOP. Return JSON only."""
