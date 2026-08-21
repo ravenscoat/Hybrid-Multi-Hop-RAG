@@ -23,7 +23,15 @@ def convert_pdfs(
         raise ValueError(f"No PDF files found under {input_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
     executable = marker_executable()
+    skipped = 0
     for pdf in pdfs:
+        # Marker writes one Markdown file inside a directory named after the
+        # PDF stem. Reuse completed outputs so interrupted large conversions
+        # can resume without reprocessing finished documents.
+        target_dir = output_dir / pdf.stem
+        if any(target_dir.glob("*.md")):
+            skipped += 1
+            continue
         command = [
             executable, str(pdf), "--mode", mode, "--disable_multiprocessing",
             "--output_format", "markdown", "--output_dir", str(output_dir),
@@ -31,5 +39,4 @@ def convert_pdfs(
         if disable_ocr:
             command.append("--disable_ocr")
         subprocess.run(command, check=True)
-    return len(pdfs)
-
+    return len(pdfs) - skipped

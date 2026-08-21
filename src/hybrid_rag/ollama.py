@@ -53,11 +53,24 @@ class OllamaClient:
     def embed(self, model: str, texts: list[str]) -> list[list[float]]:
         return self._post("/api/embed", {"model": model, "input": texts})["embeddings"]
 
-    def chat(self, model: str, system: str, user: str, json_mode: bool = False) -> str:
-        return self.chat_with_metadata(model, system, user, json_mode).content
+    def chat(
+        self,
+        model: str,
+        system: str,
+        user: str,
+        json_mode: bool = False,
+        json_schema: dict | None = None,
+    ) -> str:
+        return self.chat_with_metadata(model, system, user, json_mode, json_schema).content
 
     def chat_with_metadata(
-        self, model: str, system: str, user: str, json_mode: bool = False
+        self,
+        model: str,
+        system: str,
+        user: str,
+        json_mode: bool = False,
+        json_schema: dict | None = None,
+        num_ctx: int = 8192,
     ) -> ChatResponse:
         payload: dict = {
             "model": model,
@@ -67,8 +80,10 @@ class OllamaClient:
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "options": {"temperature": 0},
+            "options": {"temperature": 0, "num_ctx": num_ctx},
         }
-        if json_mode:
+        if json_schema is not None:
+            payload["format"] = json_schema
+        elif json_mode:
             payload["format"] = "json"
         return ChatResponse.from_ollama(self._post("/api/chat", payload))

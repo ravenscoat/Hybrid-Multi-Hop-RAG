@@ -9,7 +9,7 @@ from .index import HybridIndex
 from .marker_convert import convert_pdfs
 from .ollama import OllamaClient
 from .pipeline import RAGPipeline
-from .evaluation import evaluate_file
+from .evaluation import evaluate_file, evaluate_retrieval_file
 
 
 def ingest(path: Path, settings: Settings) -> None:
@@ -23,8 +23,12 @@ def ingest(path: Path, settings: Settings) -> None:
         batch = chunks[start : start + batch_size]
         embeddings.extend(ollama.embed(settings.embedding_model, [chunk.text for chunk in batch]))
         print(f"Embedded {min(start + batch_size, len(chunks))}/{len(chunks)} chunks")
-    HybridIndex(settings.index_dir, settings.embedding_dim).build(chunks, embeddings)
-    print(f"Indexed {len(chunks)} chunks in {settings.index_dir}")
+    HybridIndex(
+        settings.vector_store_dir,
+        settings.embedding_dim,
+        settings.chroma_collection,
+    ).build(chunks, embeddings)
+    print(f"Indexed {len(chunks)} chunks in {settings.vector_store_dir} (Chroma)")
 
 
 def main() -> None:
@@ -56,6 +60,11 @@ def main() -> None:
         action="store_true",
         help="run fast deterministic retrieval and reference-answer metrics only",
     )
+    eval_parser.add_argument(
+        "--retrieval-only",
+        action="store_true",
+        help="score retrieval without Qwen answer generation",
+    )
     args = parser.parse_args()
     settings = Settings()
     if args.command == "convert":
@@ -64,7 +73,10 @@ def main() -> None:
     elif args.command == "ingest":
         ingest(args.path, settings)
     elif args.command == "eval":
-        evaluate_file(args.input, args.output, settings, args.rerank, not args.skip_ragas)
+        if args.retrieval_only:
+            evaluate_retrieval_file(args.input, args.output, settings)
+        else:
+            evaluate_file(args.input, args.output, settings, args.rerank, not args.skip_ragas)
     else:
         selected_route = True if args.multi_hop else False if args.normal else None
         print(RAGPipeline(settings).answer(args.question, selected_route, args.rerank))

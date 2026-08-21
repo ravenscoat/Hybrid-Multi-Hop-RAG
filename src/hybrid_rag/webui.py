@@ -16,16 +16,29 @@ def build_app():
 
     def ask(question: str, route: str, rerank: bool):
         if not question.strip():
-            return "Please enter a question.", "-", "-"
+            return "Please enter a question.", "-", "-", ""
         try:
             selected_route = {"Automatic": None, "Normal": False, "Multi-hop": True}[route]
-            answer, chosen_route, sources = RAGPipeline(settings).answer_with_trace(
+            pipeline = RAGPipeline(settings)
+            answer, chosen_route, sources = pipeline.answer_with_trace(
                 question.strip(), selected_route, rerank
             )
             source_text = "\n".join(f"- `{source}`" for source in sources) or "No chunks retrieved."
-            return answer, chosen_route, source_text
+            debug = pipeline.last_rerank_debug
+            if not debug.get("enabled"):
+                debug_text = "Reranking disabled."
+            else:
+                debug_text = (
+                    f"**Parse OK:** `{debug.get('parse_ok')}`  \n"
+                    f"**Order changed:** `{debug.get('order_changed')}`  \n"
+                    f"**Candidates:** `{debug.get('candidate_ids')}`  \n"
+                    f"**Parsed IDs:** `{debug.get('parsed_ids')}`  \n"
+                    f"**Final IDs:** `{debug.get('final_ids')}`  \n"
+                    f"**Raw response:** `{debug.get('raw_response')}`"
+                )
+            return answer, chosen_route, source_text, debug_text
         except Exception as exc:
-            return f"**RAG error:** `{type(exc).__name__}: {exc}`", "ERROR", ""
+            return f"**RAG error:** `{type(exc).__name__}: {exc}`", "ERROR", "", ""
 
     with gr.Blocks(title="Local Hybrid RAG") as demo:
         gr.Markdown(
@@ -49,6 +62,7 @@ def build_app():
         answer = gr.Markdown(label="Answer")
         chosen = gr.Textbox(label="Chosen route", interactive=False)
         sources = gr.Markdown(label="Retrieved sources")
+        rerank_debug = gr.Markdown(label="Reranker diagnostics")
         gr.Examples(
             examples=[
                 ["What punishment is provided for qatl-i-amd under section 302?"],
@@ -56,8 +70,8 @@ def build_app():
             ],
             inputs=question,
         )
-        ask_button.click(ask, [question, route, rerank], [answer, chosen, sources])
-        question.submit(ask, [question, route, rerank], [answer, chosen, sources])
+        ask_button.click(ask, [question, route, rerank], [answer, chosen, sources, rerank_debug])
+        question.submit(ask, [question, route, rerank], [answer, chosen, sources, rerank_debug])
     return demo
 
 

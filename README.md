@@ -4,13 +4,47 @@ A hardware-aware, local retrieval-augmented generation pipeline for an 8 GB
 RTX 5060 laptop. It combines:
 
 - BM25 keyword retrieval
-- Qwen3 dense embeddings with an HNSW index
+- Qwen3 dense embeddings stored in a persistent local Chroma collection (Chroma's HNSW index)
 - Reciprocal Rank Fusion (RRF)
 - optional listwise reranking
 - adaptive, retrieval-conditioned query decomposition for multi-hop questions
 - answer generation with source citations through `qwen3:8b` in Ollama
 - RAGAS evaluation for faithfulness and response relevancy
 - optional Arize Phoenix tracing for request-level observability
+
+## Architecture
+
+The system keeps exact legal lookup, lexical search, semantic search, and
+answer generation as separate stages. When a query names one law, its source
+metadata is used as a precision filter; cross-law questions deliberately keep
+both document sources available.
+
+```mermaid
+flowchart TD
+    A[PDFs] --> B[Marker conversion]
+    B --> C[Markdown + metadata]
+    C --> D[Legal chunking]
+    D --> E[BM25 index]
+    D --> F[Qwen embeddings]
+    F --> G[Chroma HNSW]
+
+    Q[User question] --> R{Route}
+    R -->|single-hop| S[One hybrid retrieval]
+    R -->|multi-hop| H[Deterministic section queries<br/>or constrained decomposition]
+    H --> S
+
+    S --> M[Law/title metadata filter]
+    M --> X[Exact section anchors]
+    X --> K[BM25 + dense candidates]
+    K --> U[Weighted RRF]
+    U --> V[Optional top-10 reranker]
+    V --> L[Qwen3 answer with citations]
+    L --> P[Phoenix traces + token/latency metrics]
+```
+
+For legal questions that mention explicit sections, section-heading chunks are
+promoted above generic cross-references. This prevents a reference such as
+“see section 146” from outranking the actual Section 146 provision.
 
 ## Recommended model profile
 
@@ -33,7 +67,7 @@ manual fast path on your real question set.
 Normal query:
 
 ```text
-query -> BM25 top 30 + HNSW top 30 -> RRF top 15
+query -> BM25 top 30 + Chroma/HNSW top 30 -> RRF top 15
       -> optional rerank top 10 -> Qwen3 answer
 ```
 
@@ -189,11 +223,18 @@ Configuration is via environment variables; see `.env.example`.
 - Chunk size: 350 words, 60-word overlap
 - Candidate pools: 30 BM25 + 30 dense
 - RRF: `k=60`, fused top 15
-- Default fusion weights: 50% BM25, 50% semantic (tunable with
+- Default fusion weights: 40% BM25, 60% semantic (tunable with
   `BM25_WEIGHT` and `SEMANTIC_WEIGHT`)
 - Rerank: top 10 down to 6
-- HNSW: `M=16`, `ef_construction=100`, query `ef=64`
+- Chroma: persistent local collection under `.chroma/`
 - Generation context: at most 6 chunks
+- Claim verification: optional (`VERIFY_ANSWERS=true`); strict blocking is
+  controlled separately with `ENFORCE_GROUNDING=true`
+- Document-title filtering: automatic for a single explicitly named law;
+  `DOCUMENT_CONSTRAINTS=true` can additionally force filtering for ambiguous
+  queries
+- Ollama generation context: 8192 tokens by default (`OLLAMA_NUM_CTX=8192`) to
+  fit an 8 GB GPU
 
 These are starting values, not universal truths. Build a small evaluation set
 of roughly 50 real questions and tune recall@k, answer correctness, groundedness,
@@ -201,7 +242,7 @@ and p50/p95 latency before changing models.
 
 ## Compare hybrid weights and reranking
 
-The reproducible six-way ablation keeps BM25 and HNSW candidate pools at 30,
+The reproducible six-way ablation keeps BM25 and Chroma dense candidate pools at 30,
 uses weighted RRF, reranks the fused candidates when requested, and evaluates
 the final four chunks. It compares 50/50, 60/40 BM25/semantic, and 40/60
 BM25/semantic, each with and without the Qwen ranker:
