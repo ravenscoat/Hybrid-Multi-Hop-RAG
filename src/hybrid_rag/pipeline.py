@@ -238,6 +238,11 @@ before another fact can be retrieved. Do not solve the question."""
         aliases = {
             "adbp": "agricultural development bank of pakistan",
             "agricultural development bank": "agricultural development bank of pakistan",
+            "abandoned properties": "abandoned properties",
+            "access to the media": "access to the media",
+            "agricultural census": "agricultural census",
+            "registration of foreigners": "registration of foreigners",
+            "trained paramedical staff": "trained paramedical staff",
             "companies ordinance": "companies ordinance",
             "companies act": "companies act",
             "banking companies ordinance": "banking companies ordinance",
@@ -256,9 +261,50 @@ before another fact can be retrieved. Do not solve the question."""
         )
         return match.group(0).strip() if match else None
 
-    def _constrain_rankings(self, query: str, rankings: list[list[int]]) -> tuple[list[list[int]], str | None]:
+    @staticmethod
+    def _named_document_hints(query: str) -> set[str]:
+        """Return every recognized law title mentioned in a query."""
+        normalized = query.casefold()
+        aliases = {
+            "adbp": "agricultural development bank of pakistan",
+            "agricultural development bank": "agricultural development bank of pakistan",
+            "abandoned properties": "abandoned properties",
+            "access to the media": "access to the media",
+            "agricultural census": "agricultural census",
+            "registration of foreigners": "registration of foreigners",
+            "trained paramedical staff": "trained paramedical staff",
+            "companies ordinance": "companies ordinance",
+            "companies act": "companies act",
+            "banking companies ordinance": "banking companies ordinance",
+        }
+        return {hint for needle, hint in aliases.items() if needle in normalized}
+
+    def _catalog_document_hints(self, query: str) -> set[str]:
+        """Match explicitly named documents against the indexed source catalog."""
+        normalized = query.casefold()
+        titles: set[str] = set()
+        for chunk in self.index.chunks:
+            title = chunk.source.replace("/", "\\").split("\\", 1)[0].casefold().strip()
+            if not title:
+                continue
+            variants = {title}
+            if " (" in title:
+                variants.add(title.split(" (", 1)[0].strip())
+            if any(len(variant) >= 12 and variant in normalized for variant in variants):
+                titles.add(title)
+        return titles
+
+    def _query_document_hints(self, query: str) -> set[str]:
+        """Combine legacy aliases with automatically catalogued document titles."""
+        hints = self._named_document_hints(query)
+        hints.update(self._catalog_document_hints(query))
+        return hints
+
+    def _constrain_rankings(
+        self, query: str, rankings: list[list[int]], document_hint: str | None = None
+    ) -> tuple[list[list[int]], str | None]:
         """Keep candidates from an explicitly named law, when that law exists."""
-        hint = self._document_hint(query)
+        hint = document_hint or self._document_hint(query)
         if not hint:
             return rankings, None
         matching_ids = {
@@ -354,9 +400,14 @@ before another fact can be retrieved. Do not solve the question."""
                 span.set("rag.section_candidates", section_ids)
             # A single explicitly named law is a safe, high-precision filter.
             # Cross-document questions return no hint and remain unconstrained.
-            explicit_document = self._document_hint(query)
+            catalog_hints = self._catalog_document_hints(query)
+            explicit_document = (
+                next(iter(catalog_hints)) if len(catalog_hints) == 1 else self._document_hint(query)
+            )
             if self.settings.document_constraints or explicit_document:
-                (keyword, dense), document_hint = self._constrain_rankings(query, [keyword, dense])
+                (keyword, dense), document_hint = self._constrain_rankings(
+                    query, [keyword, dense], explicit_document
+                )
             else:
                 document_hint = None
             if document_hint:
@@ -439,7 +490,7 @@ Resolve the bridge entity from the passage when possible. Do not answer the ques
                     section_numbers.add(int(second))
             if 4 in section_numbers:
                 subquestions.append(
-                    "Agricultural Development Bank of Pakistan (Reorganization and Conversion) Ordinance, 2002 Section 4 transfer and section 4(5) override of Companies Ordinance section 146"
+                    "Agricultural Development Bank of Pakistan (Reorganization and Conversion) Ordinance, 2002 Section 4 transfer of assets liabilities proceedings and undertakings"
                 )
             if 5 in section_numbers:
                 subquestions.append(
@@ -461,6 +512,23 @@ Resolve the bridge entity from the passage when possible. Do not answer the ques
                 subquestions.append(
                     "Agricultural Development Bank of Pakistan (Reorganization and Conversion) Ordinance, 2002 Section 10 overriding effect over conflicting laws and orders"
                 )
+        # For broad questions spanning several named laws, issue one focused
+        # lookup per law. Strip the other titles so each lookup can use its own
+        # metadata filter rather than being treated as an unconstrained query.
+        named_titles = [
+            ("abandoned properties", "Abandoned Properties (Management) Act, 1975"),
+            ("access to the media", "Access to the Media (Deaf) Persons Act, 2022"),
+            ("agricultural census", "Agricultural Census Act, 1958"),
+            ("registration of foreigners", "Registration of Foreigners Act, 1939"),
+            ("trained paramedical staff", "Trained Paramedical Staff Facility Act, 2023"),
+        ]
+        present = [(needle, title) for needle, title in named_titles if needle in normalized]
+        if len(present) >= 2:
+            stripped = normalized
+            for needle, _ in present:
+                stripped = stripped.replace(needle, "")
+            for _, title in present:
+                subquestions.append(f"{title}: {stripped}")
         return subquestions
 
     def retrieve_multi_hop(self, question: str) -> list[SearchHit]:
@@ -470,6 +538,20 @@ Resolve the bridge entity from the passage when possible. Do not answer the ques
                 span.output([])
                 return []
             subquestions = self._deterministic_subquestions(question)
+            catalog_hints = self._catalog_document_hints(question)
+            if len(catalog_hints) >= 2:
+                stripped = question.casefold()
+                for hint in catalog_hints:
+                    stripped = stripped.replace(hint, "")
+                    if " (" in hint:
+                        stripped = stripped.replace(hint.split(" (", 1)[0], "")
+                # The catalog-driven path scales to every indexed document;
+                # each subquery contains one title so metadata filtering is
+                # unambiguous. Keep the hand-tuned section queries when they
+                # already cover the same documents.
+                catalog_subquestions = [f"{hint}: {stripped}" for hint in sorted(catalog_hints)]
+                if len(subquestions) < len(catalog_hints):
+                    subquestions = catalog_subquestions
             if not subquestions:
                 subquestions = self.decompose(question, initial[0])
             span.set("rag.subquestions", subquestions)
@@ -491,6 +573,22 @@ Resolve the bridge entity from the passage when possible. Do not answer the ques
                 SearchHit(self.index.chunks[doc_id], score, matched.get(doc_id))
                 for doc_id, score in fused
             ]
+            expected = self._query_document_hints(question)
+            if len(expected) >= 2:
+                covered: list[SearchHit] = []
+                for hint in expected:
+                    for hit in result:
+                        if self._source_matches_hint(hit.chunk.source, hint):
+                            covered.append(hit)
+                            break
+                covered_ids = {hit.chunk.id for hit in covered}
+                result = covered + [hit for hit in result if hit.chunk.id not in covered_ids]
+                missing = sorted(
+                    hint for hint in expected
+                    if not any(self._source_matches_hint(hit.chunk.source, hint) for hit in result)
+                )
+                span.set("rag.expected_documents", sorted(expected))
+                span.set("rag.missing_documents", missing)
             span.output([hit.chunk.id for hit in result])
             return result
 
@@ -609,6 +707,19 @@ invent IDs, explain the answer, or return an answer. Return only JSON in this fo
                 f"[{hit.chunk.source}#{hit.chunk.ordinal}]\n{hit.chunk.text}" for hit in hits
             )
             answer_prompt = f"Question: {question}\n\nEvidence:\n{evidence or '(none)'}"
+            expected_documents = self._query_document_hints(question) if multi_hop else set()
+            present_documents = {
+                hint for hint in expected_documents
+                if any(self._source_matches_hint(hit.chunk.source, hint) for hit in hits)
+            }
+            missing_documents = sorted(expected_documents - present_documents)
+            if missing_documents:
+                root_span.set("rag.missing_documents", missing_documents)
+                answer_prompt += (
+                    "\n\nEvidence coverage warning: the following named laws were not found "
+                    "in the context: " + ", ".join(missing_documents) +
+                    ". Do not make claims about them; state that their evidence is missing."
+                )
             with rag_span(
                 "llm.generate_answer",
                 {

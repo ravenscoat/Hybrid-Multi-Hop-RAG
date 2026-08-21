@@ -232,7 +232,8 @@ Configuration is via environment variables; see `.env.example`.
   controlled separately with `ENFORCE_GROUNDING=true`
 - Document-title filtering: automatic for a single explicitly named law;
   `DOCUMENT_CONSTRAINTS=true` can additionally force filtering for ambiguous
-  queries
+  queries. The catalog is built from indexed source metadata, so it covers all
+  documents without a hand-maintained alias list.
 - Ollama generation context: 8192 tokens by default (`OLLAMA_NUM_CTX=8192`) to
   fit an 8 GB GPU
 

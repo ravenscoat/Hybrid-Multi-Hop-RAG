@@ -43,3 +43,14 @@ def test_explicit_legal_sections_get_targeted_subquestions():
     assert any("Companies Ordinance" in value and "Section 146" in value for value in subquestions)
     assert any("Section 4" in value for value in subquestions)
     assert any("Section 5" in value for value in subquestions)
+
+
+def test_mixed_named_laws_get_one_targeted_lookup_each():
+    question = (
+        "Compare the Abandoned Properties Act, the Access to the Media Act, "
+        "the Agricultural Census Act, the Registration of Foreigners Act, "
+        "and the Trained Paramedical Staff Facility Act."
+    )
+    hints = RAGPipeline._named_document_hints(question)
+    assert len(hints) == 5
+    assert len(RAGPipeline._deterministic_subquestions(question)) == 5
