@@ -12,6 +12,40 @@ RTX 5060 laptop. It combines:
 - RAGAS evaluation for faithfulness and response relevancy
 - optional Arize Phoenix tracing for request-level observability
 
+## Architecture
+
+The system keeps exact legal lookup, lexical search, semantic search, and
+answer generation as separate stages. When a query names one law, its source
+metadata is used as a precision filter; cross-law questions deliberately keep
+both document sources available.
+
+```mermaid
+flowchart TD
+    A[PDFs] --> B[Marker conversion]
+    B --> C[Markdown + metadata]
+    C --> D[Legal chunking]
+    D --> E[BM25 index]
+    D --> F[Qwen embeddings]
+    F --> G[Chroma HNSW]
+
+    Q[User question] --> R{Route}
+    R -->|single-hop| S[One hybrid retrieval]
+    R -->|multi-hop| H[Deterministic section queries<br/>or constrained decomposition]
+    H --> S
+
+    S --> M[Law/title metadata filter]
+    M --> X[Exact section anchors]
+    X --> K[BM25 + dense candidates]
+    K --> U[Weighted RRF]
+    U --> V[Optional top-10 reranker]
+    V --> L[Qwen3 answer with citations]
+    L --> P[Phoenix traces + token/latency metrics]
+```
+
+For legal questions that mention explicit sections, section-heading chunks are
+promoted above generic cross-references. This prevents a reference such as
+“see section 146” from outranking the actual Section 146 provision.
+
 ## Recommended model profile
 
 | Role | Default | Why |
@@ -194,6 +228,13 @@ Configuration is via environment variables; see `.env.example`.
 - Rerank: top 10 down to 6
 - Chroma: persistent local collection under `.chroma/`
 - Generation context: at most 6 chunks
+- Claim verification: optional (`VERIFY_ANSWERS=true`); strict blocking is
+  controlled separately with `ENFORCE_GROUNDING=true`
+- Document-title filtering: automatic for a single explicitly named law;
+  `DOCUMENT_CONSTRAINTS=true` can additionally force filtering for ambiguous
+  queries
+- Ollama generation context: 8192 tokens by default (`OLLAMA_NUM_CTX=8192`) to
+  fit an 8 GB GPU
 
 These are starting values, not universal truths. Build a small evaluation set
 of roughly 50 real questions and tune recall@k, answer correctness, groundedness,

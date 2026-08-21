@@ -70,6 +70,7 @@ class OllamaClient:
         user: str,
         json_mode: bool = False,
         json_schema: dict | None = None,
+        num_ctx: int = 8192,
     ) -> ChatResponse:
         payload: dict = {
             "model": model,
@@ -79,7 +80,7 @@ class OllamaClient:
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "options": {"temperature": 0},
+            "options": {"temperature": 0, "num_ctx": num_ctx},
         }
         if json_schema is not None:
             payload["format"] = json_schema

@@ -23,3 +23,7 @@ class Settings:
     bm25_weight: float = float(os.getenv("BM25_WEIGHT", "0.4"))
     semantic_weight: float = float(os.getenv("SEMANTIC_WEIGHT", "0.6"))
     max_context_chunks: int = int(os.getenv("MAX_CONTEXT_CHUNKS", "6"))
+    verify_answers: bool = os.getenv("VERIFY_ANSWERS", "false").casefold() in {"1", "true", "yes", "on"}
+    enforce_grounding: bool = os.getenv("ENFORCE_GROUNDING", "false").casefold() in {"1", "true", "yes", "on"}
+    document_constraints: bool = os.getenv("DOCUMENT_CONSTRAINTS", "false").casefold() in {"1", "true", "yes", "on"}
+    ollama_num_ctx: int = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
