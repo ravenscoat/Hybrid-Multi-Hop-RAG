@@ -50,6 +50,8 @@ class HybridIndex:
         self.collection = collection
 
     def load(self) -> None:
+        if self.collection is not None and self.bm25 is not None and self.chunks:
+            return
         values = json.loads((self.directory / "chunks.json").read_text(encoding="utf-8"))
         self.chunks = [Chunk.from_dict(value) for value in values]
         self.bm25 = BM25([chunk.text for chunk in self.chunks])

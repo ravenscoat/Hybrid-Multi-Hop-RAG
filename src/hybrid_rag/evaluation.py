@@ -125,6 +125,44 @@ def evaluate_file(
     print(f"RAGAS evaluation written to {output_path}")
 
 
+def evaluate_retrieval_file(
+    input_path: Path,
+    output_path: Path,
+    settings: Settings,
+) -> None:
+    """Score retrieval only, without any generation or RAGAS judge calls."""
+    rows = [
+        json.loads(line)
+        for line in input_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    pipeline = RAGPipeline(settings)
+    pipeline.index.load()
+    score_rows: list[dict] = []
+    for row in rows:
+        question = str(row["question"])
+        hits = pipeline.retrieve(question)[: settings.max_context_chunks]
+        sources = [f"{hit.chunk.source}#{hit.chunk.ordinal}" for hit in hits]
+        score_rows.append(
+            {
+                "question": question,
+                "sources": sources,
+                **_retrieval_metrics(sources, row.get("reference_sources")),
+            }
+        )
+    summary = _summarize_scores(score_rows)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(
+            {"summary": summary, "scores": score_rows},
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    print(f"Retrieval evaluation written to {output_path}")
+
+
 def _log_scores_to_phoenix(samples: list[dict], scores: list[dict]) -> None:
     if os.getenv("PHOENIX_ENABLED", "false").casefold() != "true":
         return
