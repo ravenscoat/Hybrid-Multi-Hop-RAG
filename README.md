@@ -89,7 +89,25 @@ question. The fast path remains the default because decomposition is not free.
 
 1. Install Python 3.12 (your current Python 3.14 is too new for a dependable
    native vector/ML-adjacent Windows stack).
-2. Ensure Ollama is available on `http://localhost:11434`.
+2. Start Ollama before launching the RAG. The API must be available at
+   `http://localhost:11434`:
+
+```powershell
+ollama serve
+ollama list
+```
+
+If the Ollama desktop app is already running, `ollama serve` may report that
+the port is in use; that is expected. Confirm the API responds before asking a
+question:
+
+```powershell
+Invoke-WebRequest http://localhost:11434/api/tags
+```
+
+The UI now reports this startup instruction instead of exposing an opaque
+connection-refused traceback when Ollama is stopped.
+
 3. Create the environment and install the project with Marker support:
 
 ```powershell
@@ -232,7 +250,8 @@ Configuration is via environment variables; see `.env.example`.
   controlled separately with `ENFORCE_GROUNDING=true`
 - Document-title filtering: automatic for a single explicitly named law;
   `DOCUMENT_CONSTRAINTS=true` can additionally force filtering for ambiguous
-  queries
+  queries. The catalog is built from indexed source metadata, so it covers all
+  documents without a hand-maintained alias list.
 - Ollama generation context: 8192 tokens by default (`OLLAMA_NUM_CTX=8192`) to
   fit an 8 GB GPU
 

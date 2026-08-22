@@ -48,7 +48,12 @@ class OllamaClient:
             with urlopen(request, timeout=timeout) as response:
                 return json.loads(response.read())
         except URLError as exc:
-            raise RuntimeError(f"Cannot reach Ollama at {self.base_url}: {exc}") from exc
+            raise RuntimeError(
+                f"Cannot reach Ollama at {self.base_url}. Start Ollama with "
+                "`ollama serve` (or open the Ollama desktop app), then verify "
+                "the models with `ollama list`. "
+                f"Original error: {exc}"
+            ) from exc
 
     def embed(self, model: str, texts: list[str]) -> list[list[float]]:
         return self._post("/api/embed", {"model": model, "input": texts})["embeddings"]
