@@ -45,6 +45,14 @@ def git_cochange(root: Path) -> Counter[tuple[str, str]]:
     counts: Counter[tuple[str, str]] = Counter()
     for block in text.split("commit:")[1:]:
         files = sorted({line.strip().replace("\\", "/") for line in block.splitlines()[1:] if line.strip()})
+        # Ignore downloaded laws, generated indexes, and media. Co-change
+        # edges are intended to describe the maintainable codebase, not data
+        # snapshots that can create millions of noisy pairs.
+        files = [
+            path for path in files
+            if Path(path).suffix.casefold() in {".py", ".md", ".toml", ".yaml", ".yml", ".json"}
+            and not path.startswith(("data/", "outputs/", "logs/"))
+        ]
         for left, right in itertools.combinations(files, 2):
             counts[(left, right)] += 1
     return counts
