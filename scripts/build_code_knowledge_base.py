@@ -10,6 +10,8 @@ import subprocess
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from hybrid_rag.code_graph_builder import build_graph
+
 SKIP_PARTS = {".git", ".venv", ".phoenix", ".chroma", "__pycache__"}
 
 
@@ -59,6 +61,9 @@ def git_cochange(root: Path) -> Counter[tuple[str, str]]:
 
 
 def build(root: Path) -> dict:
+    return build_graph(root)
+    # Legacy implementation retained below temporarily for compatibility with
+    # older imports; the v2 builder above is the active implementation.
     nodes: dict[str, dict] = {}
     edges: list[dict] = []
     edge_seen: set[tuple[str, str, str]] = set()

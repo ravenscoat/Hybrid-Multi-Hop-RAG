@@ -173,6 +173,18 @@ hybrid-rag code-agent "Which functions call retrieve and what files changed with
 The generated graph is inspectable JSON, not an opaque LLM memory. Rebuild it
 when the source or git history changes.
 
+Generate the interactive query visualization:
+
+```powershell
+python scripts/create_code_graph_visual.py --graph outputs/code_knowledge_base.json --output outputs/code_graph_visual.html
+```
+
+Open `outputs/code_graph_visual.html`, enter a maintenance query, and select
+**Find anchor + rank**. Files, functions, and imports use distinct shapes. The
+view highlights up to five lexical anchors, animates relevance across function
+calls, import resolution, containment, and Git co-change edges, and lists the
+personalized PageRank result that would be supplied to a coding agent.
+
 ## Evaluate quality with RAGAS
 
 Install the optional local evaluation dependencies:
