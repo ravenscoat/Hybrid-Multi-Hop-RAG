@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from .chunking import load_chunks
@@ -60,12 +61,33 @@ def main() -> None:
         action="store_true",
         help="run fast deterministic retrieval and reference-answer metrics only",
     )
+    code_parser = subparsers.add_parser("code-agent", help="query the repository code knowledge graph")
+    code_parser.add_argument("question")
+    code_parser.add_argument("--knowledge-base", type=Path, default=Path("outputs/code_knowledge_base.json"))
+    code_parser.add_argument("--semantic", action="store_true", help="use Qwen semantic anchors before PageRank")
+    code_parser.add_argument("--embeddings", type=Path, default=Path("outputs/code_knowledge_base_embeddings.json"))
     eval_parser.add_argument(
         "--retrieval-only",
         action="store_true",
         help="score retrieval without Qwen answer generation",
     )
     args = parser.parse_args()
+    if args.command == "code-agent":
+        from .code_agent import CodeKnowledgeBase
+        if not args.knowledge_base.exists():
+            raise SystemExit(f"Knowledge base not found: {args.knowledge_base}. Run scripts/build_code_knowledge_base.py first.")
+        kb = CodeKnowledgeBase(args.knowledge_base, args.embeddings if args.semantic else None)
+        if args.semantic:
+            if not args.embeddings.exists():
+                raise SystemExit(f"Embeddings not found: {args.embeddings}. Run scripts/embed_code_knowledge_base.py first.")
+            settings = Settings()
+            query_text = f"Instruct: Retrieve code symbols relevant to this software-maintenance task.\nQuery: {args.question}"
+            query_vector = OllamaClient(settings.ollama_url).embed(settings.embedding_model, [query_text])[0]
+            result = kb.semantic_anchor_and_pagerank(query_vector, limit=15)
+        else:
+            result = kb.anchor_and_pagerank(args.question, limit=15)
+        print(json.dumps(result, indent=2))
+        return
     settings = Settings()
     if args.command == "convert":
         count = convert_pdfs(args.path, args.output, args.mode, disable_ocr=not args.ocr)

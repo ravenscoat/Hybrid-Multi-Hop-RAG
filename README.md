@@ -147,8 +147,43 @@ hybrid-rag-ui
 hybrid-rag ask "What does the collection say about ...?"
 hybrid-rag ask --normal "Force the fast single-hop path"
 hybrid-rag ask --multi-hop "Which ... and how does it relate to ...?"
- hybrid-rag ask --rerank "Find the exact policy for ABC-123"
+hybrid-rag ask --rerank "Find the exact policy for ABC-123"
 ```
+
+## Repository code knowledge base
+
+The repository also includes a small, deterministic code graph for exploring
+the RAG implementation itself. It extracts three edge types: import-to-import
+relationships, function-to-function call relationships, and file-to-file
+co-change relationships mined from git commits.
+
+Build it after code changes:
+
+```powershell
+python scripts/build_code_knowledge_base.py --repo . --output outputs/code_knowledge_base.json
+```
+
+Query it with the adaptive code agent. The agent chooses the smallest relevant
+graph view from the question (imports, function calls, or git history):
+
+```powershell
+hybrid-rag code-agent "Which functions call retrieve and what files changed with pipeline.py?"
+```
+
+The generated graph is inspectable JSON, not an opaque LLM memory. Rebuild it
+when the source or git history changes.
+
+Generate the interactive query visualization:
+
+```powershell
+python scripts/create_code_graph_visual.py --graph outputs/code_knowledge_base.json --output outputs/code_graph_visual.html
+```
+
+Open `outputs/code_graph_visual.html`, enter a maintenance query, and select
+**Find anchor + rank**. Files, functions, and imports use distinct shapes. The
+view highlights up to five lexical anchors, animates relevance across function
+calls, import resolution, containment, and Git co-change edges, and lists the
+personalized PageRank result that would be supplied to a coding agent.
 
 ## Evaluate quality with RAGAS
 
