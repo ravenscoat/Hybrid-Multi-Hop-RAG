@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from .chunking import load_chunks
@@ -60,12 +61,21 @@ def main() -> None:
         action="store_true",
         help="run fast deterministic retrieval and reference-answer metrics only",
     )
+    code_parser = subparsers.add_parser("code-agent", help="query the repository code knowledge graph")
+    code_parser.add_argument("question")
+    code_parser.add_argument("--knowledge-base", type=Path, default=Path("outputs/code_knowledge_base.json"))
     eval_parser.add_argument(
         "--retrieval-only",
         action="store_true",
         help="score retrieval without Qwen answer generation",
     )
     args = parser.parse_args()
+    if args.command == "code-agent":
+        from .code_agent import AdaptiveCodeAgent, CodeKnowledgeBase
+        if not args.knowledge_base.exists():
+            raise SystemExit(f"Knowledge base not found: {args.knowledge_base}. Run scripts/build_code_knowledge_base.py first.")
+        print(json.dumps(AdaptiveCodeAgent(CodeKnowledgeBase(args.knowledge_base)).ask(args.question), indent=2))
+        return
     settings = Settings()
     if args.command == "convert":
         count = convert_pdfs(args.path, args.output, args.mode, disable_ocr=not args.ocr)
